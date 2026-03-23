@@ -1,0 +1,32 @@
+{
+  "title": "Waterfall Enrichment Actor",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "firstName": {
+      "title": "First Name",
+      "type": "string",
+      "description": "Enter your first name",
+      "editor": "textfield"
+    },
+    "lastName": {
+      "title": "Last Name",
+      "type": "string",
+      "description": "Enter your last name",
+      "editor": "textfield"
+    },
+    "domain": {
+      "title": "Domain",
+      "type": "string",
+      "description": "Enter domain e.g. example.com",
+      "editor": "textfield"
+    },
+    "fileUrl": {
+      "title": "CSV or Excel File URL",
+      "type": "string",
+      "description": "Paste a public URL to your .csv or .xlsx file",
+      "editor": "textfield"
+    }
+  },
+  "required": ["firstName", "lastName", "domain"]
+}
