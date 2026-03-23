@@ -4,6 +4,9 @@
   "type": "module",
   "description": "Waterfall Enrichment Actor",
   "main": "main.js",
+  "scripts": {
+    "start": "node main.js"
+  },
   "dependencies": {
     "apify": "^3.0.0"
   }
