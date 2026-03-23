@@ -24,13 +24,20 @@
       "editor": "textfield",
       "prefill": "google.com"
     },
-    "fileUrl": {
+    "uploadedFile": {
       "title": "CSV or Excel File URL",
       "type": "string",
-      "description": "Paste a public URL to your .csv or .xlsx file containing leads",
+      "description": "Paste your Google Sheets or CSV file URL",
       "editor": "textfield",
       "prefill": "https://docs.google.com/spreadsheets/d/your-file-id"
+    },
+    "serviceRequestTagName": {
+      "title": "Service Request Tag Name",
+      "type": "string",
+      "description": "Enter a tag name for this request e.g. Waterfall Enrichment",
+      "editor": "textfield",
+      "prefill": "Waterfall Enrichment"
     }
   },
-  "required": ["firstName", "lastName", "domain"]
+  "required": ["firstName", "lastName", "domain", "uploadedFile", "serviceRequestTagName"]
 }
