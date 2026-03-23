@@ -6,26 +6,30 @@
     "firstName": {
       "title": "First Name",
       "type": "string",
-      "description": "Enter your first name",
-      "editor": "textfield"
+      "description": "Enter the first name of the person to enrich",
+      "editor": "textfield",
+      "prefill": "John"
     },
     "lastName": {
       "title": "Last Name",
       "type": "string",
-      "description": "Enter your last name",
-      "editor": "textfield"
+      "description": "Enter the last name of the person to enrich",
+      "editor": "textfield",
+      "prefill": "Doe"
     },
     "domain": {
       "title": "Domain",
       "type": "string",
-      "description": "Enter domain e.g. example.com",
-      "editor": "textfield"
+      "description": "Company domain without https:// e.g. google.com",
+      "editor": "textfield",
+      "prefill": "google.com"
     },
     "fileUrl": {
       "title": "CSV or Excel File URL",
       "type": "string",
-      "description": "Paste a public URL to your .csv or .xlsx file",
-      "editor": "textfield"
+      "description": "Paste a public URL to your .csv or .xlsx file containing leads",
+      "editor": "textfield",
+      "prefill": "https://docs.google.com/spreadsheets/d/your-file-id"
     }
   },
   "required": ["firstName", "lastName", "domain"]
