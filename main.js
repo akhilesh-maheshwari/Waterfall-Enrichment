@@ -80,7 +80,7 @@ try {
   console.log('Saving to Airtable...');
 
   const airtableResponse = await fetch(
-    'https://api.airtable.com/v0/appCuadMXrDaqpfaDV/tblD3UXc3tYW0mOdT',
+    'https://api.airtable.com/v0/appCuadMXrDqpfaDV/tblD3UXc3tYW0mOdT',
     {
       method: 'POST',
       headers: {
