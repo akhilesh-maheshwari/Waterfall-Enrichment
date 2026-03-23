@@ -2,5 +2,7 @@
   "actorSpecification": 1,
   "name": "Waterfall-Enrichment",
   "title": "Waterfall Enrichment Actor",
-  "version": "0.1"
+  "version": "0.1",
+  "buildTag": "latest",
+  "dockerfile": "./Dockerfile"
 }
