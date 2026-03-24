@@ -6,20 +6,20 @@
     "entries": {
       "title": "Entries (CSV format)",
       "type": "string",
-      "description": "Enter leads in CSV format. One per line: first_name,last_name,domain",
+      "description": "Enter leads in CSV format. One lead per line: first_name,last_name,domain",
       "editor": "textarea",
-      "prefill": "Kendall,Smith,nielsen.com\nJason,Tucker,seif.com"
+      "prefill": "Kendall,Smith,nielsen.com\nJason,Tucker,seif.com\nJohn,Doe,google.com\nJane,Smith,microsoft.com\nRobert,Johnson,apple.com"
     },
     "uploadedFile": {
       "title": "Upload File",
       "type": "string",
-      "description": "Or paste a Google Sheets / CSV file URL here",
+      "description": "Or upload your CSV or Excel file directly",
       "editor": "textfield"
     },
     "serviceRequestTagName": {
       "title": "Service Request Tag Name",
       "type": "string",
-      "description": "Enter a tag name for this request",
+      "description": "Enter a tag name for this request e.g. Waterfall Enrichment",
       "editor": "textfield",
       "prefill": "Waterfall Enrichment"
     }
