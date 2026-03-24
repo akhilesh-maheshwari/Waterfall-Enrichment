@@ -7,42 +7,69 @@ try {
   // ──────────────────────────────
   // 1. GET INPUT
   // ──────────────────────────────
-  const input = await Actor.getInput();
-
-  const firstName      = input.firstName             || '';
-  const lastName       = input.lastName              || '';
-  const domain         = input.domain                || '';
+  const input          = await Actor.getInput();
+  const entries        = input.entries             || '';
+  const uploadedFile   = input.uploadedFile        || '';
   const serviceTagName = input.serviceRequestTagName || '';
-  let   csvUrl         = input.uploadedFile || input.fileUrl || input.csvUrl || '';
 
-  console.log('First Name:', firstName);
-  console.log('Last Name :', lastName);
-  console.log('Domain    :', domain);
-  console.log('Tag Name  :', serviceTagName);
-  console.log('CSV URL   :', csvUrl);
+  console.log('Tag Name:', serviceTagName);
+  console.log('Entries provided:', entries ? 'Yes' : 'No');
+  console.log('File URL provided:', uploadedFile ? 'Yes' : 'No');
 
   // ──────────────────────────────
-  // 2. CONVERT GOOGLE SHEETS URL
+  // 2. GET CSV CONTENT
   // ──────────────────────────────
-  if (csvUrl.includes('docs.google.com/spreadsheets')) {
-    const match = csvUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-    if (match) {
-      csvUrl = `https://docs.google.com/spreadsheets/d/${match[1]}/export?format=csv&gid=0`;
-      console.log('Converted URL:', csvUrl);
+  let csvContent = '';
+  let fileName   = '';
+  let rowCount   = 0;
+
+  if (entries) {
+    // User typed entries directly
+    console.log('Using typed entries...');
+    csvContent = 'first_name,last_name,domain\n' + entries.trim();
+    rowCount   = entries.trim().split('\n').length;
+    fileName   = `${serviceTagName}_${new Date().toISOString()}.csv`
+                 .replace(/[^a-zA-Z0-9._-]/g, '_');
+    console.log('Row count:', rowCount);
+
+  } else if (uploadedFile) {
+    // User provided a file URL
+    console.log('Using uploaded file URL...');
+
+    // Convert Google Sheets URL if needed
+    let csvUrl = uploadedFile;
+    if (csvUrl.includes('docs.google.com/spreadsheets')) {
+      const match = csvUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+      if (match) {
+        csvUrl = `https://docs.google.com/spreadsheets/d/${match[1]}/export?format=csv&gid=0`;
+        console.log('Converted URL:', csvUrl);
+      }
     }
+
+    // Download the CSV
+    const csvRes = await fetch(csvUrl);
+    csvContent   = await csvRes.text();
+    rowCount     = csvContent.trim().split('\n').length - 1;
+    fileName     = `${serviceTagName}_${new Date().toISOString()}.csv`
+                   .replace(/[^a-zA-Z0-9._-]/g, '_');
+    console.log('Row count:', rowCount);
+
+  } else {
+    throw new Error('No entries or file URL provided!');
   }
 
   // ──────────────────────────────
   // 3. SAVE CSV TO GOOGLE DRIVE
   // ──────────────────────────────
-  console.log('Saving CSV to Google Drive...');
+  console.log('Saving CSV to Google Drive folder: Waterfall_Enrichment_AP');
+
   const gasRes = await fetch(
     'https://script.google.com/macros/s/AKfycbyrkTBophapts2XV4ZA2HxmzUgB26wfhcZmm7qAz7wuRckW5suJSENN6GL_G4zeFx7I/exec',
     {
       method  : 'POST',
       redirect: 'follow',
       headers : { 'Content-Type': 'text/plain' },
-      body    : JSON.stringify({ firstName, lastName, domain, csvUrl })
+      body    : JSON.stringify({ csvContent, fileName })
     }
   );
 
@@ -57,22 +84,13 @@ try {
   console.log('Drive link:', driveLink);
 
   // ──────────────────────────────
-  // 4. COUNT CSV ROWS
-  // ──────────────────────────────
-  console.log('Counting rows...');
-  const csvRes   = await fetch(csvUrl);
-  const csvText  = await csvRes.text();
-  const rowCount = csvText.trim().split('\n').length - 1;
-  console.log('Row count (minus header):', rowCount);
-
-  // ──────────────────────────────
-  // 5. CALCULATE COST
+  // 4. CALCULATE COST
   // ──────────────────────────────
   const creditsCost = parseFloat((rowCount * 0.01).toFixed(2));
   console.log('Credits cost:', creditsCost);
 
   // ──────────────────────────────
-  // 6. GET APIFY RUN DETAILS
+  // 5. GET APIFY RUN DETAILS
   // ──────────────────────────────
   const env    = Actor.getEnv();
   const userId = env.userId     || 'unknown';
@@ -84,10 +102,10 @@ try {
   console.log('Time   :', time);
 
   // ──────────────────────────────
-  // 7. SAVE TO AIRTABLE
-  // uses service_request_tag_name
+  // 6. SAVE TO AIRTABLE
   // ──────────────────────────────
   console.log('Saving to Airtable...');
+
   const atRes = await fetch(
     'https://api.airtable.com/v0/appCuadMXrDqpfaDV/tblD3UXc3tYW0mOdT',
     {
@@ -103,7 +121,7 @@ try {
           time_of_request             : time,
           service_request_tag_name    : serviceTagName,
           service_request_size        : rowCount,
-          service_cost: creditsCost,
+          service_request_credits_cost: creditsCost,
           service_request_url         : driveLink
         }
       })
@@ -120,10 +138,10 @@ try {
   }
 
   // ──────────────────────────────
-  // 8. SEND TO WEBHOOK
-  // uses service_name instead of service_request_tag_name
+  // 7. SEND TO WEBHOOK
   // ──────────────────────────────
   console.log('Sending to Webhook...');
+
   const webhookRes = await fetch(
     'https://s1.boomerangserver.co.in/webhook/waterfall-live',
     {
