@@ -121,7 +121,16 @@ try {
   const env    = Actor.getEnv();
   const userId = env.userId     || 'unknown';
   const runId  = env.actorRunId || 'unknown';
-  const time   = new Date().toISOString();
+  const now  = new Date();
+const time = now.toLocaleString('en-US', {
+  year  : 'numeric',
+  month : 'long',
+  day   : 'numeric',
+  hour  : 'numeric',
+  minute: '2-digit',
+  hour12: true,
+  timeZone: 'Asia/Kolkata'
+});
 
   console.log('User ID:', userId);
   console.log('Run ID :', runId);
