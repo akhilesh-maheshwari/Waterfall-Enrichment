@@ -179,7 +179,7 @@ try {
         service_name       : serviceTagName,
         size               : rowCount,
         service_request_url: driveLink,
-        source             : 'AP'
+        source             : 'Waterfall_enrichment_AP'
       })
     }
   );
