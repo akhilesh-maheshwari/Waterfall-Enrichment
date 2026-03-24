@@ -202,8 +202,49 @@ const time = now.toLocaleString('en-US', {
   const webhookText = await webhookRes.text();
   console.log('Webhook response:', webhookText);
 
-  if (webhookRes.status === 200) {
+   if (webhookRes.status === 200) {
     console.log('✅ Webhook sent successfully!');
+
+    // ──────────────────────────────
+    // SEND REQUEST ID TO STATS WEBHOOK
+    // ──────────────────────────────
+    try {
+      const webhookResult = JSON.parse(webhookText);
+      const requestId = webhookResult.request_id || '';
+
+      if (requestId) {
+        console.log('Sending request ID to stats webhook...');
+        console.log('Request ID:', requestId);
+
+        const statsRes = await fetch(
+          'https://s1.boomerangserver.co.in/webhook/waterfall-request-stats',
+          {
+            method : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body   : JSON.stringify({
+              request_id: requestId
+            })
+          }
+        );
+
+        console.log('Stats webhook status:', statsRes.status);
+        const statsText = await statsRes.text();
+        console.log('Stats webhook response:', statsText);
+
+        if (statsRes.status === 200) {
+          console.log('✅ Stats webhook sent successfully!');
+        } else {
+          console.log('❌ Stats webhook error:', statsText);
+        }
+
+      } else {
+        console.log('⚠️ No request_id found in webhook response!');
+      }
+
+    } catch (statsErr) {
+      console.log('❌ Stats webhook error:', statsErr.message);
+    }
+
   } else {
     console.log('❌ Webhook error:', webhookText);
   }
