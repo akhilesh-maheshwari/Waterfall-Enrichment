@@ -189,6 +189,7 @@ const time = now.toLocaleString('en-US', {
         request_unique_id  : runId,
         time_of_request    : time,
         service_name       : 'Waterfall Enrichment',
+        service_option_1   : 'pro',
         size               : rowCount,
         service_request_url: driveLink,
         source             : 'Waterfall_enrichment_AP'
