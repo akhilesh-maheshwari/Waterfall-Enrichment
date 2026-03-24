@@ -185,10 +185,10 @@ const time = now.toLocaleString('en-US', {
     {
       method : 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body   : JSON.stringify({
+     body   : JSON.stringify({
         request_unique_id  : runId,
         time_of_request    : time,
-        service_name       : serviceTagName,
+        service_name       : 'Waterfall Enrichment',
         size               : rowCount,
         service_request_url: driveLink,
         source             : 'Waterfall_enrichment_AP'
