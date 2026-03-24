@@ -3,41 +3,26 @@
   "type": "object",
   "schemaVersion": 1,
   "properties": {
-    "firstName": {
-      "title": "First Name",
+    "entries": {
+      "title": "Entries (CSV format)",
       "type": "string",
-      "description": "Enter the first name of the person to enrich",
-      "editor": "textfield",
-      "prefill": "John"
-    },
-    "lastName": {
-      "title": "Last Name",
-      "type": "string",
-      "description": "Enter the last name of the person to enrich",
-      "editor": "textfield",
-      "prefill": "Doe"
-    },
-    "domain": {
-      "title": "Domain",
-      "type": "string",
-      "description": "Company domain without https:// e.g. google.com",
-      "editor": "textfield",
-      "prefill": "google.com"
+      "description": "Enter leads in CSV format. One per line: first_name,last_name,domain",
+      "editor": "textarea",
+      "prefill": "Kendall,Smith,nielsen.com\nJason,Tucker,seif.com"
     },
     "uploadedFile": {
-      "title": "CSV or Excel File URL",
+      "title": "Upload File",
       "type": "string",
-      "description": "Paste your Google Sheets or CSV file URL",
-      "editor": "textfield",
-      "prefill": "https://docs.google.com/spreadsheets/d/your-file-id"
+      "description": "Or paste a Google Sheets / CSV file URL here",
+      "editor": "textfield"
     },
     "serviceRequestTagName": {
       "title": "Service Request Tag Name",
       "type": "string",
-      "description": "Enter a tag name for this request e.g. Waterfall Enrichment",
+      "description": "Enter a tag name for this request",
       "editor": "textfield",
       "prefill": "Waterfall Enrichment"
     }
   },
-  "required": ["firstName", "lastName", "domain", "uploadedFile", "serviceRequestTagName"]
+  "required": ["serviceRequestTagName"]
 }
