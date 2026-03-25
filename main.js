@@ -215,7 +215,7 @@ try {
   // 9. POLL STATS WEBHOOK
   // Every 3 sec jab tak "Completed" na aaye
   // ──────────────────────────────
-  console.log('Polling stats webhook every 3 sec until Completed...');
+  console.log('Polling stats webhook every 2 min until Completed...');
 
   let isCompleted = false;
   let pollCount   = 0;
