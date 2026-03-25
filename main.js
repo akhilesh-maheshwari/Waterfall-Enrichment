@@ -98,7 +98,7 @@ try {
   // 4. CALCULATE COST
   // $15 per 1000 inputs = $0.015 per row
   // ──────────────────────────────
-  const creditsCost = parseFloat((rowCount * 0.015).toFixed(2));
+  const creditsCost = parseFloat((rowCount * 0.015).toFixed(3));
   console.log('Row count  :', rowCount);
   console.log('Credits cost: $', creditsCost);
 
