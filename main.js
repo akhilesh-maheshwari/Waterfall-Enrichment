@@ -103,7 +103,7 @@ try {
   console.log('Credits cost: $', creditsCost);
 
   // ──────────────────────────────
-  // 5. TRIGGER N8N
+  // 5. TRIGGER N8N AND WAIT
   // ──────────────────────────────
   console.log('Triggering n8n workflow...');
 
@@ -119,21 +119,46 @@ try {
         serviceTagName,
         rowCount,
         creditsCost,
-        csvContent,   // ← filled if manual entry
-        uploadedFile, // ← filled if file URL
+        csvContent,
+        uploadedFile,
         fileName
       })
     }
   );
 
   console.log('n8n trigger status:', n8nRes.status);
-  const n8nText = await n8nRes.text();
-  console.log('n8n response:', n8nText);
+  const n8nResult = await n8nRes.json();
+  console.log('n8n response:', JSON.stringify(n8nResult));
 
   if (n8nRes.status === 200) {
     console.log('✅ n8n triggered successfully!');
+
+    // ──────────────────────────────
+    // 6. SAVE OUTPUT
+    // ──────────────────────────────
+    await Actor.pushData({
+      userId,
+      runId,
+      time,
+      serviceTagName,
+      rowCount,
+      creditsCost,
+      driveInputLink  : n8nResult.driveLink      || '',
+      driveOutputLink : n8nResult.webViewLink     || '',
+      requestId       : n8nResult.requestId       || '',
+      requestStatus   : n8nResult.requestStatus   || '',
+      totalEmailFound : n8nResult.totalEmailFound || ''
+    });
+
+    console.log('✅ Output saved!');
+    console.log('Request ID      :', n8nResult.requestId);
+    console.log('Request Status  :', n8nResult.requestStatus);
+    console.log('Drive Input Link:', n8nResult.driveLink);
+    console.log('Drive Output Link:', n8nResult.webViewLink);
+    console.log('Total Email Found:', n8nResult.totalEmailFound);
+
   } else {
-    console.log('❌ n8n trigger failed:', n8nText);
+    console.log('❌ n8n trigger failed:', JSON.stringify(n8nResult));
   }
 
 } catch (err) {
