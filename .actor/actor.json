@@ -4,5 +4,10 @@
   "title": "Waterfall Enrichment Actor",
   "version": "0.1",
   "buildTag": "latest",
-  "dockerfile": "./Dockerfile"
+  "dockerfile": "./Dockerfile",
+  "defaultRunOptions": {
+    "build": "latest",
+    "timeoutSecs": 0,
+    "memoryMbytes": 1024
+  }
 }
