@@ -102,7 +102,7 @@ try {
 
   // ──────────────────────────────
   // 5. TRIGGER N8N
-  // n8n responds with Airtable record
+  // n8n responds with { request_id, driveLink }
   // ──────────────────────────────
   console.log('Triggering n8n workflow...');
 
@@ -129,16 +129,62 @@ try {
   const n8nData = await n8nRes.json();
   console.log('n8n response:', JSON.stringify(n8nData));
 
-  const requestId = n8nData.fields?.request_unique_id || n8nData.request_unique_id || '';
-  const driveLink = n8nData.fields?.service_request_url || n8nData.service_request_url || '';
+  const boomerangId = String(n8nData.request_id || '');
+  const driveLink   = n8nData.driveLink || '';
 
-  if (!requestId) throw new Error('No request_id returned from n8n!');
+  if (!boomerangId) throw new Error('No request_id returned from n8n!');
 
-  console.log('Request ID :', requestId);
-  console.log('Drive Link :', driveLink);
+  console.log('Boomerang ID :', boomerangId);
+  console.log('Drive Link   :', driveLink);
 
   // ──────────────────────────────
-  // 6. SAVE OUTPUT
+  // 6. POLL STATS WEBHOOK
+  // Every 2 min until Completed
+  // ──────────────────────────────
+  console.log('\nWaiting 30 seconds before first poll...');
+  await new Promise(resolve => setTimeout(resolve, 30000));
+
+  console.log('Polling boomerang stats every 2 min until Completed...');
+
+  let isCompleted = false;
+  let pollCount   = 0;
+  let statsResult = {};
+
+  while (!isCompleted) {
+
+    pollCount++;
+    console.log(`\n🔄 Poll attempt #${pollCount}...`);
+
+    const statsRes = await fetch(
+      `https://s1.boomerangserver.co.in/webhook/waterfall-request-stats?request_id=${boomerangId}`
+    );
+
+    statsResult = await statsRes.json();
+    console.log('Request status:', statsResult.request_status);
+    console.log('Stats:', JSON.stringify(statsResult));
+
+    if (statsResult.request_status === 'Completed') {
+      console.log('✅ Status = Completed!');
+      isCompleted = true;
+    } else {
+      console.log(`⏳ Still "${statsResult.request_status}" — waiting 2 minutes...`);
+      await new Promise(resolve => setTimeout(resolve, 120000));
+    }
+  }
+
+  // ──────────────────────────────
+  // 7. CALL OUTPUT WEBHOOK
+  // ──────────────────────────────
+  console.log('\nCalling output webhook...');
+
+  const outputRes    = await fetch(
+    `https://s1.boomerangserver.co.in/webhook/waterfalls-request-output?request_id=${boomerangId}`
+  );
+  const outputResult = await outputRes.json();
+  console.log('Output response:', JSON.stringify(outputResult));
+
+  // ──────────────────────────────
+  // 8. SAVE FINAL OUTPUT
   // ──────────────────────────────
   await Actor.pushData({
     userId,
@@ -147,19 +193,21 @@ try {
     serviceTagName,
     rowCount,
     creditsCost,
-    requestId,
-    driveInputLink : driveLink,
-    airtableId     : n8nData.id            || '',
-    createdTime    : n8nData.createdTime   || '',
-    serviceName    : n8nData.fields?.service_name          || '',
-    serviceOption  : n8nData.fields?.service_option_1      || '',
-    requestSource  : n8nData.fields?.request_source        || ''
+    boomerangId,
+    driveInputLink     : driveLink,
+    driveOutputLink    : outputResult.webViewLink          || outputResult.output_sheet_url || '',
+    requestStatus      : statsResult.request_status        || '',
+    totalProspects     : statsResult.total_prospects       || '',
+    totalEmailFound    : statsResult.total_email_found     || '',
+    totalEmailNotFound : statsResult.total_email_not_found || ''
   });
 
-  console.log('\n✅ Done! Airtable record saved.');
-  console.log('Airtable ID    :', n8nData.id);
-  console.log('Request ID     :', requestId);
-  console.log('Drive Input    :', driveLink);
+  console.log('\n✅ Final output saved!');
+  console.log('Boomerang ID      :', boomerangId);
+  console.log('Drive Input Link  :', driveLink);
+  console.log('Drive Output Link :', outputResult.webViewLink || outputResult.output_sheet_url);
+  console.log('Total Prospects   :', statsResult.total_prospects);
+  console.log('Total Email Found :', statsResult.total_email_found);
 
 } catch (err) {
   console.log('❌ Error:', err.message);
