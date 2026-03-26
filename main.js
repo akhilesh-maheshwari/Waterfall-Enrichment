@@ -136,18 +136,19 @@ try {
 
   console.log('n8n step 1 status:', n8nRes.status);
 
-  // Check for non-200 status before parsing JSON
+  // Read body ONCE only ✅
+  const n8nText = await n8nRes.text();
+  console.log('n8n step 1 raw response:', n8nText);
+
   if (!n8nRes.ok) {
-    const rawText = await n8nRes.text();
-    throw new Error(`Step 1 failed with status ${n8nRes.status}. Response: ${rawText.slice(0, 200)}`);
+    throw new Error(`Step 1 failed with status ${n8nRes.status}. Response: ${n8nText.slice(0, 200)}`);
   }
 
   let n8nData;
   try {
-    n8nData = await n8nRes.json();
+    n8nData = JSON.parse(n8nText); // parse from already-read text ✅
   } catch (parseErr) {
-    const rawText = await n8nRes.text();
-    throw new Error(`Step 1 JSON parse failed. Raw response: ${rawText.slice(0, 200)}`);
+    throw new Error(`Step 1 JSON parse failed. Raw response: ${n8nText.slice(0, 200)}`);
   }
 
   console.log('n8n step 1 response:', JSON.stringify(n8nData));
@@ -187,18 +188,19 @@ try {
 
   console.log('n8n step 2 status:', pollRes.status);
 
-  // Check for non-200 status before parsing JSON
+  // Read body ONCE only ✅
+  const pollText = await pollRes.text();
+  console.log('n8n step 2 raw response:', pollText);
+
   if (!pollRes.ok) {
-    const rawText = await pollRes.text();
-    throw new Error(`Step 2 failed with status ${pollRes.status}. Response: ${rawText.slice(0, 200)}`);
+    throw new Error(`Step 2 failed with status ${pollRes.status}. Response: ${pollText.slice(0, 200)}`);
   }
 
   let pollData;
   try {
-    pollData = await pollRes.json();
+    pollData = JSON.parse(pollText); // parse from already-read text ✅
   } catch (parseErr) {
-    const rawText = await pollRes.text();
-    throw new Error(`Step 2 JSON parse failed. Raw response: ${rawText.slice(0, 200)}`);
+    throw new Error(`Step 2 JSON parse failed. Raw response: ${pollText.slice(0, 200)}`);
   }
 
   console.log('n8n step 2 response:', JSON.stringify(pollData));
