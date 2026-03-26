@@ -207,7 +207,7 @@ try {
       continue;
     }
 
-    requestStatus = boomerangData.requestStatus || boomerangData.status      || '';
+    requestStatus = boomerangData.request_status || boomerangData.requestStatus || boomerangData.status || '';
     outputLink    = boomerangData['Output Link'] || boomerangData.webViewLink || boomerangData.outputLink || '';
 
     console.log(`Status      : ${requestStatus}`);
