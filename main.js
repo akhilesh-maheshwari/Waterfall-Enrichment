@@ -102,7 +102,7 @@ try {
 
   // ──────────────────────────────
   // 5. TRIGGER N8N
-  // n8n responds with request_id + driveLink
+  // n8n responds with Airtable record
   // ──────────────────────────────
   console.log('Triggering n8n workflow...');
 
@@ -126,10 +126,9 @@ try {
   );
 
   console.log('n8n trigger status:', n8nRes.status);
-  const n8nData = await n8nRes.json();                         // ✅ parse JSON
+  const n8nData = await n8nRes.json();
   console.log('n8n response:', JSON.stringify(n8nData));
 
-  // ✅ extract requestId and driveLink from Airtable record returned by n8n
   const requestId = n8nData.fields?.request_unique_id || n8nData.request_unique_id || '';
   const driveLink = n8nData.fields?.service_request_url || n8nData.service_request_url || '';
 
@@ -139,50 +138,7 @@ try {
   console.log('Drive Link :', driveLink);
 
   // ──────────────────────────────
-  // 6. POLL STATS WEBHOOK
-  // Every 2 min until Completed
-  // ──────────────────────────────
-  console.log('\nPolling stats webhook every 2 min until Completed...');
-
-  let isCompleted = false;
-  let pollCount   = 0;
-  let statsResult = {};
-
-  while (!isCompleted) {
-
-    pollCount++;
-    console.log(`\n🔄 Poll attempt #${pollCount}...`);
-
-    const statsRes = await fetch(
-      `https://s1.boomerangserver.co.in/webhook/waterfall-request-stats?request_id=${requestId}`
-    );
-
-    statsResult = await statsRes.json();
-    console.log('Request status:', statsResult.request_status);
-    console.log('Stats:', JSON.stringify(statsResult));
-
-    if (statsResult.request_status === 'Completed') {
-      console.log('✅ Status = Completed!');
-      isCompleted = true;
-    } else {
-      console.log(`⏳ Still "${statsResult.request_status}" — waiting 2 minutes...`);
-      await new Promise(resolve => setTimeout(resolve, 120000));
-    }
-  }
-
-  // ──────────────────────────────
-  // 7. CALL OUTPUT WEBHOOK
-  // ──────────────────────────────
-  console.log('\nCalling output webhook...');
-
-  const outputRes    = await fetch(
-    `https://s1.boomerangserver.co.in/webhook/waterfalls-request-output?request_id=${requestId}`
-  );
-  const outputResult = await outputRes.json();
-  console.log('Output response:', JSON.stringify(outputResult));
-
-  // ──────────────────────────────
-  // 8. SAVE FINAL OUTPUT
+  // 6. SAVE OUTPUT
   // ──────────────────────────────
   await Actor.pushData({
     userId,
@@ -192,19 +148,18 @@ try {
     rowCount,
     creditsCost,
     requestId,
-    driveInputLink    : driveLink,
-    driveOutputLink   : outputResult.webViewLink             || '',
-    requestStatus     : statsResult.request_status           || '',
-    totalProspects    : statsResult.total_prospects          || '',
-    totalEmailFound   : statsResult.total_email_found        || '',
-    totalEmailNotFound: statsResult.total_email_not_found    || ''
+    driveInputLink : driveLink,
+    airtableId     : n8nData.id            || '',
+    createdTime    : n8nData.createdTime   || '',
+    serviceName    : n8nData.fields?.service_name          || '',
+    serviceOption  : n8nData.fields?.service_option_1      || '',
+    requestSource  : n8nData.fields?.request_source        || ''
   });
 
-  console.log('\n✅ Final output saved!');
-  console.log('Drive Input Link  :', driveLink);
-  console.log('Drive Output Link :', outputResult.webViewLink);
-  console.log('Total Prospects   :', statsResult.total_prospects);
-  console.log('Total Email Found :', statsResult.total_email_found);
+  console.log('\n✅ Done! Airtable record saved.');
+  console.log('Airtable ID    :', n8nData.id);
+  console.log('Request ID     :', requestId);
+  console.log('Drive Input    :', driveLink);
 
 } catch (err) {
   console.log('❌ Error:', err.message);
