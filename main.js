@@ -101,16 +101,14 @@ try {
   console.log('Credits cost: $', creditsCost);
 
   // ──────────────────────────────
-  // 5. TRIGGER N8N — STEP 1
+  // 5. TRIGGER N8N
   // ──────────────────────────────
-  console.log('\nStep 1: Triggering n8n waterfall-input...');
-
-  const boomerangInputUrl = 'https://s1.boomerangserver.co.in/webhook/waterfall-live';
+  console.log('\nTriggering n8n webhook...');
 
   let n8nRes;
   try {
     n8nRes = await fetch(
-      'https://n8n-internal.chitlangia.co/webhook/waterfall-input',
+      'https://n8n-internal.chitlangia.co/webhook/social-url',
       {
         method : 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -125,163 +123,26 @@ try {
           csvContent,
           uploadedFile,
           fileName,
-          boomerangInputUrl,
-          service_option_1         : 'pro',
-          service_name             : 'Waterfall Enrichment',
-          request_source           : 'Waterfall_enrichment_AP'
+          service_option_1 : 'pro',
+          service_name     : 'Waterfall Enrichment',
+          request_source   : 'Waterfall_enrichment_AP'
         })
       }
     );
   } catch (fetchErr) {
-    throw new Error(`Step 1 fetch failed: ${fetchErr.message}`);
+    throw new Error(`n8n webhook failed: ${fetchErr.message}`);
   }
-
-  console.log('n8n step 1 status:', n8nRes.status);
 
   const n8nText = await n8nRes.text();
-  console.log('n8n step 1 raw response:', n8nText);
+  console.log('n8n status:', n8nRes.status);
+  console.log('n8n response:', n8nText);
 
   if (!n8nRes.ok) {
-    throw new Error(`Step 1 failed with status ${n8nRes.status}. Response: ${n8nText.slice(0, 200)}`);
-  }
-
-  let n8nData;
-  try {
-    n8nData = JSON.parse(n8nText);
-  } catch (parseErr) {
-    throw new Error(`Step 1 JSON parse failed. Raw response: ${n8nText.slice(0, 200)}`);
-  }
-
-  console.log('n8n step 1 response:', JSON.stringify(n8nData));
-
-  const request_id = String(n8nData.request_id || '');
-  const driveLink  = n8nData.driveLink || '';
-
-  if (!request_id) throw new Error('No request_id returned from n8n step 1!');
-
-  console.log('Request ID :', request_id);
-  console.log('Drive Link :', driveLink);
-
-  // ──────────────────────────────
-  // 6. POLL BOOMERANG DIRECTLY — STEP 2
-  // ──────────────────────────────
-  console.log('\nStep 2: Polling Boomerang directly for status...');
-  console.log('Polling every 2 minutes until Completed...');
-
-  const POLL_INTERVAL_MS = 2 * 60 * 1000;
-
-  let requestStatus = '';
-  let attempts      = 0;
-
-  while (true) {
-
-    attempts++;
-    console.log(`\nPoll attempt ${attempts}...`);
-
-    let boomerangRes;
-    try {
-      boomerangRes = await fetch(
-        `https://s1.boomerangserver.co.in/webhook/waterfall-request-stats?request_id=${request_id}`,
-        {
-          method : 'GET',
-          signal : AbortSignal.timeout(15000)
-        }
-      );
-    } catch (fetchErr) {
-      console.log(`Poll attempt ${attempts} fetch failed: ${fetchErr.message}, retrying in 2 min...`);
-      await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
-      continue;
-    }
-
-    const boomerangText = await boomerangRes.text();
-
-    let boomerangData;
-    try {
-      boomerangData = JSON.parse(boomerangText);
-    } catch (e) {
-      console.log('Boomerang JSON parse failed, retrying in 2 min...');
-      await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
-      continue;
-    }
-
-    requestStatus = boomerangData.request_status || boomerangData.requestStatus || boomerangData.status || '';
-
-    const emailFound    = boomerangData.total_email_found    || 0;
-    const emailNotFound = boomerangData.total_email_not_found || 0;
-
-    if (requestStatus)   console.log(`Status           : ${requestStatus}`);
-    if (emailFound)      console.log(`Emails Found     : ${emailFound}`);
-    if (emailNotFound)   console.log(`Emails Not Found : ${emailNotFound}`);
-
-    if (requestStatus === 'Completed') {
-      console.log('✅ Boomerang processing complete!');
-      break;
-    }
-
-    if (requestStatus) {
-      console.log(`Waiting 2 minutes... (${requestStatus})`);
-    } else {
-      console.log('No status returned yet, retrying in 2 min...');
-    }
-
-    await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+    throw new Error(`n8n webhook returned status ${n8nRes.status}. Response: ${n8nText.slice(0, 200)}`);
   }
 
   // ──────────────────────────────
-  // 7. TRIGGER N8N — STEP 3
-  // ──────────────────────────────
-  console.log('\nStep 3: Sending output to n8n output webhook...');
-
-  // Now request_id is known, build the output URL with it
-  const boomerangOutputUrlFinal = `https://s1.boomerangserver.co.in/webhook/waterfalls-request-output?request_id=${request_id}`;
-
-  let outputLink = '';
-
-  try {
-    const outputRes  = await fetch(
-      'https://n8n-internal.chitlangia.co/webhook/waterfall-output',
-      {
-        method : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal : AbortSignal.timeout(30000),
-        body   : JSON.stringify({
-          userId,
-          runId,
-          time,
-          serviceTagName,
-          rowCount,
-          creditsCost,
-          request_id,
-          requestStatus,
-          driveInputLink   : driveLink,
-          boomerangOutputUrl : boomerangOutputUrlFinal
-        })
-      }
-    );
-
-    const outputText = await outputRes.text();
-    console.log('n8n step 3 status:', outputRes.status);
-    console.log('n8n step 3 raw response:', outputText);
-
-    if (outputRes.ok) {
-      try {
-        const outputData = JSON.parse(outputText);
-        outputLink = outputData.driveOutputLink || outputData['Output Link'] || outputData.outputLink || outputData.webViewLink || '';
-        if (outputLink) console.log('Output Link:', outputLink);
-      } catch (e) {
-        console.log('Step 3 JSON parse failed, continuing...');
-      }
-    } else {
-      console.log(`Warning: Step 3 returned status ${outputRes.status}, continuing...`);
-    }
-
-  } catch (fetchErr) {
-    console.log(`Warning: Step 3 fetch failed: ${fetchErr.message}`);
-    console.log('Continuing to save output anyway...');
-  }
-
-  // ──────────────────────────────
-  // 8. SAVE FINAL OUTPUT TO APIFY DATASET
+  // 6. SAVE OUTPUT TO APIFY DATASET
   // ──────────────────────────────
   await Actor.pushData({
     userId,
@@ -289,18 +150,10 @@ try {
     time,
     serviceTagName,
     rowCount,
-    creditsCost,
-    request_id,
-    driveInputLink  : driveLink,
-    driveOutputLink : outputLink,
-    requestStatus
+    creditsCost
   });
 
-  console.log('\n✅ Final output saved!');
-  console.log('Request ID   :', request_id);
-  console.log('Input Link   :', driveLink);
-  if (outputLink) console.log('Output Link  :', outputLink);
-  console.log('Status       :', requestStatus);
+  console.log('\n✅ Done! n8n will handle the rest.');
 
 } catch (err) {
   console.log('❌ Error:', err.message);
