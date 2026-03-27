@@ -7,14 +7,19 @@ try {
   // ──────────────────────────────
   // 1. GET INPUT
   // ──────────────────────────────
-  const input          = await Actor.getInput();
-  const entries        = input.entries               || '';
-  const uploadedFile   = input.uploadedFile          || '';
-  const serviceTagName = input.serviceRequestTagName || '';
+  const input           = await Actor.getInput();
+  const entries         = input.entries               || '';
+  const uploadedFile    = input.uploadedFile          || '';
+  const serviceTagName  = input.serviceRequestTagName || '';
+  const serviceName     = input.serviceName           || 'Waterfall Enrichment';
+  const serviceOption1  = input.serviceOption1        || 'pro';
+  const requestSource   = input.requestSource         || 'Waterfall_enrichment_AP';
+  const boomerangInputUrl  = input.boomerangInputUrl  || 'https://s1.boomerangserver.co.in/webhook/waterfall-live';
 
-  console.log('Tag Name:', serviceTagName);
-  console.log('Entries provided:', entries ? 'Yes' : 'No');
-  console.log('File URL provided:', uploadedFile ? 'Yes' : 'No');
+  console.log('Tag Name :', serviceTagName);
+  console.log('Service  :', serviceName);
+  console.log('Entries  :', entries ? 'Yes' : 'No');
+  console.log('File URL :', uploadedFile ? 'Yes' : 'No');
 
   // ──────────────────────────────
   // 2. BUILD CSV CONTENT
@@ -34,11 +39,14 @@ try {
       if (cols.length === 3) {
         validLines.push(cols.map(c => c.trim()).join(','));
       } else {
-        console.log('Skipping invalid line:', line);
+        validLines.push(line.trim());
       }
     }
 
-    csvContent = 'first_name,last_name,domain\n' + validLines.join('\n');
+    const hasThreeCols = validLines[0] && validLines[0].split(',').length === 3;
+    const header = hasThreeCols ? 'first_name,last_name,domain' : 'url';
+
+    csvContent = header + '\n' + validLines.join('\n');
     rowCount   = validLines.length;
     fileName   = serviceTagName.replace(/[^a-zA-Z0-9]/g, '_') + '_' + new Date().toISOString().replace(/[:.]/g, '-') + '.csv';
 
@@ -97,24 +105,22 @@ try {
   // 4. CALCULATE COST
   // ──────────────────────────────
   const creditsCost = parseFloat((rowCount * 0.015).toFixed(3));
-  console.log('Row count  :', rowCount);
+  console.log('Row count   :', rowCount);
   console.log('Credits cost: $', creditsCost);
 
   // ──────────────────────────────
-  // 5. TRIGGER N8N — STEP 1
+  // 5. TRIGGER WORKFLOW 1
   // ──────────────────────────────
-  console.log('\nStep 1: Triggering n8n waterfall-input...');
+  console.log('\nStep 1: Triggering n8n master webhook...');
 
-  const boomerangInputUrl = 'https://s1.boomerangserver.co.in/webhook/waterfall-live';
-
-  let n8nRes;
+  let wf1Res;
   try {
-    n8nRes = await fetch(
-      'https://n8n-internal.chitlangia.co/webhook/waterfall-input',
+    wf1Res = await fetch(
+      'https://n8n-internal.chitlangia.co/webhook/master_webhook',
       {
         method : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        signal : AbortSignal.timeout(30000),
+        signal : AbortSignal.timeout(60000),
         body   : JSON.stringify({
           userId,
           runId,
@@ -126,9 +132,9 @@ try {
           uploadedFile,
           fileName,
           boomerangInputUrl,
-          service_option_1         : 'pro',
-          service_name             : 'Waterfall Enrichment',
-          request_source           : 'Waterfall_enrichment_AP'
+          service_option_1 : serviceOption1,
+          service_name     : serviceName,
+          request_source   : requestSource
         })
       }
     );
@@ -136,171 +142,145 @@ try {
     throw new Error(`Step 1 fetch failed: ${fetchErr.message}`);
   }
 
-  console.log('n8n step 1 status:', n8nRes.status);
+  console.log('n8n step 1 status:', wf1Res.status);
 
-  const n8nText = await n8nRes.text();
-  console.log('n8n step 1 raw response:', n8nText);
+  const wf1Text = await wf1Res.text();
+  console.log('n8n step 1 raw response:', wf1Text);
 
-  if (!n8nRes.ok) {
-    throw new Error(`Step 1 failed with status ${n8nRes.status}. Response: ${n8nText.slice(0, 200)}`);
-  }
+  if (!wf1Res.ok) throw new Error(`Step 1 failed with status ${wf1Res.status}. Response: ${wf1Text.slice(0, 200)}`);
 
-  let n8nData;
+  let wf1Data;
   try {
-    n8nData = JSON.parse(n8nText);
-  } catch (parseErr) {
-    throw new Error(`Step 1 JSON parse failed. Raw response: ${n8nText.slice(0, 200)}`);
+    wf1Data = JSON.parse(wf1Text);
+  } catch (e) {
+    throw new Error(`Step 1 JSON parse failed. Raw response: ${wf1Text.slice(0, 200)}`);
   }
 
-  console.log('n8n step 1 response:', JSON.stringify(n8nData));
+  console.log('n8n step 1 response:', JSON.stringify(wf1Data));
 
-  const request_id = String(n8nData.request_id || '');
-  const driveLink  = n8nData.driveLink || '';
+  const request_unique_id = wf1Data.request_unique_id || '';
+  const masterFileUrl     = wf1Data.masterFileUrl     || '';
+  const total_batches     = parseInt(wf1Data.total_batches || '0');
+  const batchFolderId     = wf1Data.batchFolderId     || '';
 
-  if (!request_id) throw new Error('No request_id returned from n8n step 1!');
+  if (!request_unique_id) throw new Error('No request_unique_id returned from Step 1!');
 
-  console.log('Request ID :', request_id);
-  console.log('Drive Link :', driveLink);
+  console.log('\n✅ Step 1 Complete!');
+  console.log('Request ID    :', request_unique_id);
+  console.log('Master File   :', masterFileUrl);
+  console.log('Total Batches :', total_batches);
 
   // ──────────────────────────────
-  // 6. POLL BOOMERANG DIRECTLY — STEP 2
+  // 6. LOOP — Process 5 batches at a time via Workflow 2
   // ──────────────────────────────
-  console.log('\nStep 2: Polling Boomerang directly for status...');
-  console.log('Polling every 2 minutes until Completed...');
+  let completedBatches = 0;
+  let round            = 0;
+  let allOutputLinks   = [];
 
-  const POLL_INTERVAL_MS = 2 * 60 * 1000;
+  while (completedBatches < total_batches) {
 
-  let requestStatus = '';
-  let attempts      = 0;
+    round++;
+    const remaining = total_batches - completedBatches;
+    const thisBatch = Math.min(5, remaining);
 
-  while (true) {
+    console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+    console.log(`Step 2: Round ${round} — Processing ${thisBatch} batch(es)...`);
+    console.log(`Completed so far : ${completedBatches}/${total_batches}`);
+    console.log(`Remaining        : ${remaining}`);
+    console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
 
-    attempts++;
-    console.log(`\nPoll attempt ${attempts}...`);
-
-    let boomerangRes;
+    let wf2Res;
     try {
-      boomerangRes = await fetch(
-        `https://s1.boomerangserver.co.in/webhook/waterfall-request-stats?request_id=${request_id}`,
+      wf2Res = await fetch(
+        'https://n8n-internal.chitlangia.co/webhook/batch-process',
         {
-          method : 'GET',
-          signal : AbortSignal.timeout(15000)
+          method : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal : AbortSignal.timeout(30 * 60 * 1000),
+          body   : JSON.stringify({
+            request_unique_id,
+            batchFolderId,
+            userId,
+            runId,
+            time,
+            serviceTagName,
+            rowCount,
+            creditsCost,
+            boomerangInputUrl,
+            service_option_1 : serviceOption1,
+            service_name     : serviceName,
+            request_source   : requestSource
+          })
         }
       );
     } catch (fetchErr) {
-      console.log(`Poll attempt ${attempts} fetch failed: ${fetchErr.message}, retrying in 2 min...`);
-      await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
-      continue;
+      throw new Error(`Step 2 Round ${round} failed: ${fetchErr.message}`);
     }
 
-    const boomerangText = await boomerangRes.text();
+    console.log('n8n step 2 status:', wf2Res.status);
 
-    let boomerangData;
+    const wf2Text = await wf2Res.text();
+    console.log('n8n step 2 raw response:', wf2Text);
+
+    if (!wf2Res.ok) throw new Error(`Step 2 error: ${wf2Text.slice(0, 200)}`);
+
+    let wf2Data;
     try {
-      boomerangData = JSON.parse(boomerangText);
+      wf2Data = JSON.parse(wf2Text);
     } catch (e) {
-      console.log('Boomerang JSON parse failed, retrying in 2 min...');
-      await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
-      continue;
+      throw new Error(`Step 2 JSON parse failed: ${wf2Text.slice(0, 200)}`);
     }
 
-    requestStatus = boomerangData.request_status || boomerangData.requestStatus || boomerangData.status || '';
+    console.log('n8n step 2 response:', JSON.stringify(wf2Data));
 
-    const emailFound    = boomerangData.total_email_found    || 0;
-    const emailNotFound = boomerangData.total_email_not_found || 0;
+    // Log each batch output
+    const batchResults = wf2Data.batchResults || [];
 
-    if (requestStatus)   console.log(`Status           : ${requestStatus}`);
-    if (emailFound)      console.log(`Emails Found     : ${emailFound}`);
-    if (emailNotFound)   console.log(`Emails Not Found : ${emailNotFound}`);
-
-    if (requestStatus === 'Completed') {
-      console.log('✅ Boomerang processing complete!');
-      break;
+    console.log(`\n✅ Round ${round} Complete! Results:`);
+    for (const batch of batchResults) {
+      console.log(`\n  📦 Batch ${batch.batch_number}:`);
+      console.log(`     Status         : ${batch.status}`);
+      console.log(`     Emails Found   : ${batch.email_found}`);
+      console.log(`     Emails Missing : ${batch.email_not_found}`);
+      console.log(`     Output Link    : ${batch.output_url}`);
+      allOutputLinks.push(batch.output_url);
     }
 
-    if (requestStatus) {
-      console.log(`Waiting 2 minutes... (${requestStatus})`);
-    } else {
-      console.log('No status returned yet, retrying in 2 min...');
-    }
+    completedBatches += batchResults.length;
 
-    await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+    // Save round results to Apify dataset
+    await Actor.pushData({
+      round,
+      request_unique_id,
+      completedBatches,
+      total_batches,
+      batchResults
+    });
+
+    if (completedBatches < total_batches) {
+      console.log(`\n⏳ ${total_batches - completedBatches} batch(es) remaining. Starting next round...`);
+    }
   }
 
   // ──────────────────────────────
-  // 7. TRIGGER N8N — STEP 3
+  // 7. ALL DONE
   // ──────────────────────────────
-  console.log('\nStep 3: Sending output to n8n output webhook...');
+  console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('🎉 ALL BATCHES COMPLETED!');
+  console.log('Request ID    :', request_unique_id);
+  console.log('Master File   :', masterFileUrl);
+  console.log('Total Batches :', total_batches);
+  console.log('\nAll Output Links:');
+  allOutputLinks.forEach((link, i) => console.log(`  Batch ${i + 1} : ${link}`));
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
-  // Now request_id is known, build the output URL with it
-  const boomerangOutputUrlFinal = `https://s1.boomerangserver.co.in/webhook/waterfalls-request-output?request_id=${request_id}`;
-
-  let outputLink = '';
-
-  try {
-    const outputRes  = await fetch(
-      'https://n8n-internal.chitlangia.co/webhook/waterfall-output',
-      {
-        method : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal : AbortSignal.timeout(30000),
-        body   : JSON.stringify({
-          userId,
-          runId,
-          time,
-          serviceTagName,
-          rowCount,
-          creditsCost,
-          request_id,
-          requestStatus,
-          driveInputLink   : driveLink,
-          boomerangOutputUrl : boomerangOutputUrlFinal
-        })
-      }
-    );
-
-    const outputText = await outputRes.text();
-    console.log('n8n step 3 status:', outputRes.status);
-    console.log('n8n step 3 raw response:', outputText);
-
-    if (outputRes.ok) {
-      try {
-        const outputData = JSON.parse(outputText);
-        outputLink = outputData.driveOutputLink || outputData['Output Link'] || outputData.outputLink || outputData.webViewLink || '';
-        if (outputLink) console.log('Output Link:', outputLink);
-      } catch (e) {
-        console.log('Step 3 JSON parse failed, continuing...');
-      }
-    } else {
-      console.log(`Warning: Step 3 returned status ${outputRes.status}, continuing...`);
-    }
-
-  } catch (fetchErr) {
-    console.log(`Warning: Step 3 fetch failed: ${fetchErr.message}`);
-    console.log('Continuing to save output anyway...');
-  }
-
-  // ──────────────────────────────
-  // 8. SAVE FINAL OUTPUT TO APIFY DATASET
-  // ──────────────────────────────
   await Actor.pushData({
-    userId,
-    runId,
-    time,
-    serviceTagName,
-    rowCount,
-    creditsCost,
-    request_id,
-    driveInputLink  : driveLink,
-    driveOutputLink : outputLink,
-    requestStatus
+    status           : 'completed',
+    request_unique_id,
+    total_batches,
+    masterFileUrl,
+    allOutputLinks
   });
-
-  console.log('\n✅ Final output saved!');
-  console.log('Request ID   :', request_id);
-  console.log('Input Link   :', driveLink);
-  if (outputLink) console.log('Output Link  :', outputLink);
-  console.log('Status       :', requestStatus);
 
 } catch (err) {
   console.log('❌ Error:', err.message);
