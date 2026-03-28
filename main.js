@@ -110,7 +110,6 @@ try {
 
   // ──────────────────────────────
   // 5. STEP 1 — TRIGGER WORKFLOW 1
-  //    Setup folders, batches, NocoDB
   // ──────────────────────────────
   console.log('\n════════════════════════════════════');
   console.log('Step 1 : Setting up master & batches');
@@ -173,15 +172,12 @@ try {
 
   // ──────────────────────────────
   // 6. STEP 2 — PROCESS BATCHES
-  //    Apify calls Workflow 2 directly
-  //    Then calls Workflow 3 for each batch
   // ──────────────────────────────
   let completedBatches = 0;
   let round            = 0;
   let allOutputLinks   = [];
-  let batchJobs        = [];
 
-  // Helper function to call Workflow 2
+  // Helper: call Workflow 2 to get next 5 pending batches
   const getNextBatchJobs = async () => {
     try {
       const wf2Res = await fetch(
@@ -210,44 +206,39 @@ try {
       const wf2Text = await wf2Res.text();
       console.log('n8n step 2 status  :', wf2Res.status);
       console.log('n8n step 2 response:', wf2Text);
-      if (!wf2Text || wf2Text.trim() === '') return [];
+      if (!wf2Text || wf2Text.trim() === '') return null;
       const wf2Data = JSON.parse(wf2Text);
-      return wf2Data.batchJobs || [];
+      return wf2Data.batchJobs || null;
     } catch (err) {
-      console.log('Workflow 2 call failed:', err.message);
-      return [];
+      console.log('❌ No response, please try again.');
+      return null;
     }
   };
 
   // Get first round of batchJobs
-  batchJobs = await getNextBatchJobs();
+  let batchJobs = await getNextBatchJobs();
 
-  while (true) {
+  if (!batchJobs || batchJobs.length === 0) {
+    console.log('❌ No response, please try again.');
+  } else {
 
-    round++;
-    const remaining = total_batches - completedBatches;
-    const thisRound = batchJobs.length;
+    while (true) {
 
-    console.log(`\n════════════════════════════════════`);
-    console.log(`Step 2 : Round ${round} — ${thisRound} batch(es)`);
-    console.log(`         Completed : ${completedBatches}/${total_batches}`);
-    console.log(`         Remaining : ${remaining}`);
-    console.log(`════════════════════════════════════`);
+      round++;
+      console.log(`\n════════════════════════════════════`);
+      console.log(`Step 2 : Round ${round} — ${batchJobs.length} batch(es)`);
+      console.log(`         Completed : ${completedBatches}/${total_batches}`);
+      console.log(`         Remaining : ${total_batches - completedBatches}`);
+      console.log(`════════════════════════════════════`);
 
-    if (!batchJobs || batchJobs.length === 0) {
-      console.log('✅ No more pending batches. All done!');
-      break;
-    }
+      // ── Call Workflow 3 for ALL batches simultaneously ──
+      console.log(`\n  Sending ${batchJobs.length} batches to n8n for status checking...`);
 
-    // ── 2b. Call Workflow 3 for ALL batches simultaneously ──
-    // n8n handles all polling internally — Apify just waits for response
-    console.log(`\n  Sending ${batchJobs.length} batches to n8n for status checking...`);
-
-    const batchStatusResults = await Promise.all(
-      batchJobs.map(async (job) => {
-        const { request_id, driveInputLink, batch_number, nocodb_id } = job;
-        console.log(`  ⏳ Batch ${batch_number} — Waiting for n8n to complete (request_id: ${request_id})...`);
-        let statusData = null;
+      const batchStatusResults = await Promise.all(
+        batchJobs.map(async (job) => {
+          const { request_id, driveInputLink, batch_number, nocodb_id } = job;
+          console.log(`  ⏳ Batch ${batch_number} — Waiting for n8n to complete (request_id: ${request_id})...`);
+          let statusData = null;
           while (!statusData) {
             try {
               const statusRes = await fetch(
@@ -255,7 +246,7 @@ try {
                 {
                   method : 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  signal : AbortSignal.timeout(60 * 60 * 1000), // 60 min timeout
+                  signal : AbortSignal.timeout(60 * 60 * 1000),
                   body   : JSON.stringify({
                     request_id,
                     batch_number,
@@ -268,14 +259,13 @@ try {
                     runId,
                     time,
                     serviceTagName,
-                    rowCount         : job.batch_size || rowCount,
+                    rowCount  : job.batch_size || rowCount,
                     creditsCost
                   })
                 }
               );
               const statusText = await statusRes.text();
 
-              // If 504 or HTML response → stop everything
               if (statusText.includes('<html>') || statusText.includes('504')) {
                 console.log(`  ❌ Batch ${batch_number} — 504 Gateway Timeout, please try again.`);
                 statusData = { status: 'GatewayTimeout' };
@@ -286,102 +276,110 @@ try {
               statusData = JSON.parse(statusText);
 
             } catch (err) {
-              console.log(`  ⚠️ Batch ${batch_number} failed: ${err.message}, retrying in 30 seconds...`);
-              await new Promise(r => setTimeout(r, 30000));
+              console.log(`  ❌ No response, please try again.`);
+              statusData = { status: 'Failed' };
             }
           }
           return { ...statusData, job };
-      })
-    );
+        })
+      );
 
-    // ── 2c. Check if any batch had GatewayTimeout — stop everything
-    const hasTimeout = batchStatusResults.some(r => r.status === 'GatewayTimeout');
-    if (hasTimeout) {
-      console.log('\n❌ 504 Gateway Timeout — stopping. Please try again.');
-      break;
-    }
-
-    // ── 2c. Call Workflow 4 (waterfall-output) for each completed batch ──
-    const batchResults = [];
-
-    for (const result of batchStatusResults) {
-      const { job } = result;
-      const { request_id, driveInputLink, batch_number, nocodb_id } = job;
-      const boomerangOutputUrl = `https://s1.boomerangserver.co.in/webhook/waterfalls-request-output?request_id=${request_id}`;
-
-      let outputLink = '';
-      try {
-        const outputRes = await fetch(
-          'https://frontend.boomerangserver.co.in/webhook/waterfall-output-copy',
-          {
-            method : 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            signal : AbortSignal.timeout(60000),
-            body   : JSON.stringify({
-              userId,
-              runId,
-              time,
-              serviceTagName,
-              rowCount         : job.batch_size || rowCount,
-              creditsCost,
-              request_id,
-              requestStatus    : result.status,
-              driveInputLink,
-              boomerangOutputUrl,
-              nocodb_id,
-              batch_number,
-              request_unique_id,
-              batchFolderId
-            })
-          }
-        );
-        const outputText = await outputRes.text();
-        if (outputRes.ok) {
-          try {
-            const outputData = JSON.parse(outputText);
-            outputLink = outputData['Output Link'] || outputData.outputLink || outputData.driveOutputLink || outputData.webViewLink || '';
-          } catch (e) {
-            console.log(`  Batch ${batch_number} output parse failed, continuing...`);
-          }
-        } else {
-          console.log(`  ❌ No response, please try again.`);
-        }
-      } catch (fetchErr) {
-        console.log(`  ❌ No response, please try again.`);
+      // Stop if 504 timeout
+      const hasTimeout = batchStatusResults.some(r => r.status === 'GatewayTimeout');
+      if (hasTimeout) {
+        console.log('\n❌ 504 Gateway Timeout — stopping. Please try again.');
+        break;
       }
 
-      batchResults.push({
-        batch_number,
-        request_id,
-        status     : result.status,
-        output_url : outputLink
-      });
+      // ── Call Workflow 4 for each completed batch ──
+      const batchResults = [];
 
-      allOutputLinks.push(outputLink);
-    }
+      for (const result of batchStatusResults) {
+        const { job } = result;
+        const { request_id, driveInputLink, batch_number, nocodb_id } = job;
 
-    // ── 2d. Log round results ──
-    console.log(`\n✅ Round ${round} Results:`);
-    for (const result of batchResults) {
-      console.log(`\n   📦 Batch ${result.batch_number}`);
-      console.log(`      Request ID  : ${result.request_id}`);
-      console.log(`      Status      : ${result.status}`);
-      console.log(`      Output Link : ${result.output_url}`);
-    }
+        // Skip output if not completed
+        if (result.status !== 'Completed') {
+          console.log(`  ⚠️ Batch ${batch_number} did not complete. Skipping output.`);
+          batchResults.push({ batch_number, request_id, status: result.status || 'Failed', output_url: '' });
+          allOutputLinks.push('');
+          continue;
+        }
 
-    completedBatches += batchResults.length;
+        const boomerangOutputUrl = `https://s1.boomerangserver.co.in/webhook/waterfalls-request-output?request_id=${request_id}`;
+        let outputLink = '';
 
-    await Actor.pushData({
-      round,
-      request_unique_id,
-      completedBatches,
-      total_batches,
-      batchResults
-    });
+        try {
+          const outputRes = await fetch(
+            'https://frontend.boomerangserver.co.in/webhook/waterfall-output-copy',
+            {
+              method : 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              signal : AbortSignal.timeout(60000),
+              body   : JSON.stringify({
+                userId,
+                runId,
+                time,
+                serviceTagName,
+                rowCount         : job.batch_size || rowCount,
+                creditsCost,
+                request_id,
+                requestStatus    : result.status,
+                driveInputLink,
+                boomerangOutputUrl,
+                nocodb_id,
+                batch_number,
+                request_unique_id,
+                batchFolderId
+              })
+            }
+          );
+          const outputText = await outputRes.text();
+          if (outputRes.ok) {
+            try {
+              const outputData = JSON.parse(outputText);
+              outputLink = outputData['Output Link'] || outputData.outputLink || outputData.driveOutputLink || outputData.webViewLink || '';
+            } catch (e) {
+              console.log(`  Batch ${batch_number} output parse failed.`);
+            }
+          } else {
+            console.log(`  ❌ No response, please try again.`);
+          }
+        } catch (fetchErr) {
+          console.log(`  ❌ No response, please try again.`);
+        }
 
-    if (completedBatches < total_batches) {
+        batchResults.push({ batch_number, request_id, status: result.status, output_url: outputLink });
+        allOutputLinks.push(outputLink);
+      }
+
+      // ── Log round results ──
+      console.log(`\n✅ Round ${round} Results:`);
+      for (const result of batchResults) {
+        console.log(`\n   📦 Batch ${result.batch_number}`);
+        console.log(`      Request ID  : ${result.request_id}`);
+        console.log(`      Status      : ${result.status}`);
+        console.log(`      Output Link : ${result.output_url}`);
+      }
+
+      completedBatches += batchResults.length;
+
+      await Actor.pushData({ round, request_unique_id, completedBatches, total_batches, batchResults });
+
+      // ── Break if all done ──
+      if (completedBatches >= total_batches) {
+        console.log('\n✅ All batches processed!');
+        break;
+      }
+
+      // ── Get next round ──
       console.log(`\n⏳ ${total_batches - completedBatches} batch(es) remaining. Getting next round...`);
       batchJobs = await getNextBatchJobs();
+
+      if (!batchJobs || batchJobs.length === 0) {
+        console.log('✅ No more pending batches.');
+        break;
+      }
     }
   }
 
@@ -398,12 +396,7 @@ try {
     allOutputLinks.forEach((link, i) => console.log(`  Batch ${i + 1} : ${link}`));
     console.log('════════════════════════════════════');
 
-    await Actor.pushData({
-      status           : 'completed',
-      request_unique_id,
-      total_batches,
-      allOutputLinks
-    });
+    await Actor.pushData({ status: 'completed', request_unique_id, total_batches, allOutputLinks });
   }
 
 } catch (err) {
