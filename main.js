@@ -393,9 +393,8 @@ try {
   console.log('🎉 ALL BATCHES COMPLETED!');
   console.log('════════════════════════════════════');
   console.log('Request ID    :', request_unique_id);
-  console.log('Master File   :', masterFileUrl);
   console.log('Total Batches :', total_batches);
-  console.log('\nAll Output Links:');
+  console.log('\nOutput Links:');
   allOutputLinks.forEach((link, i) => console.log(`  Batch ${i + 1} : ${link}`));
   console.log('════════════════════════════════════');
 
