@@ -172,17 +172,22 @@ try {
 
   // ──────────────────────────────
   // 6. STEP 2 — PROCESS BATCHES
-  //    5 batches at a time
+  //    Workflow 1 already triggered Workflow 2
+  //    Apify gets batchJobs from Workflow 1 response
+  //    Then calls Workflow 3 for each batch
   // ──────────────────────────────
   let completedBatches = 0;
   let round            = 0;
   let allOutputLinks   = [];
 
+  // batchJobs already returned from Workflow 1
+  let batchJobs = wf1Data.batchJobs || [];
+
   while (true) {
 
     round++;
     const remaining = total_batches - completedBatches;
-    const thisRound = Math.min(5, remaining);
+    const thisRound = batchJobs.length;
 
     console.log(`\n════════════════════════════════════`);
     console.log(`Step 2 : Round ${round} — ${thisRound} batch(es)`);
@@ -190,77 +195,10 @@ try {
     console.log(`         Remaining : ${remaining}`);
     console.log(`════════════════════════════════════`);
 
-    // ── 2a. Get 5 pending batches from NocoDB via Apify ──
-    // Workflow 1 already triggered Workflow 2 — Apify now polls NocoDB for Processing batches
-    console.log(`\n  Checking NocoDB for processing batches...`);
-
-    const POLL_INTERVAL_MS = 2 * 60 * 1000;
-    let batchJobs = [];
-    let pollAttempts = 0;
-
-    while (batchJobs.length === 0) {
-      pollAttempts++;
-      console.log(`  Poll attempt ${pollAttempts}...`);
-
-      let nocRes;
-      try {
-        nocRes = await fetch(
-          `https://n8n-internal.chitlangia.co/webhook/2d274972-e90d-4f14-bb58-57b7ea40abdf`,
-          {
-            method : 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            signal : AbortSignal.timeout(60000),
-            body   : JSON.stringify({
-              request_unique_id,
-              batchFolderId,
-              userId,
-              runId,
-              time,
-              serviceTagName,
-              rowCount,
-              creditsCost,
-              boomerangInputUrl,
-              service_option_1 : serviceOption1,
-              service_name     : serviceName,
-              request_source   : requestSource
-            })
-          }
-        );
-      } catch (fetchErr) {
-        throw new Error(`Step 2 Round ${round} failed: ${fetchErr.message}`);
-      }
-
-      const nocText = await nocRes.text();
-      console.log('n8n step 2 status  :', nocRes.status);
-      console.log('n8n step 2 response:', nocText);
-
-      if (!nocRes.ok) throw new Error(`Step 2 error ${nocRes.status}: ${nocText.slice(0, 200)}`);
-
-      if (!nocText || nocText.trim() === '') {
-        console.log('✅ No more pending batches. All done!');
-        batchJobs = null;
-        break;
-      }
-
-      let nocData;
-      try {
-        nocData = JSON.parse(nocText);
-      } catch (e) {
-        console.log('Step 2 response not JSON, exiting loop.');
-        batchJobs = null;
-        break;
-      }
-
-      batchJobs = nocData.batchJobs || [];
-
-      if (batchJobs.length === 0) {
-        console.log('✅ No more pending batches. All done!');
-        batchJobs = null;
-        break;
-      }
+    if (!batchJobs || batchJobs.length === 0) {
+      console.log('✅ No more pending batches. All done!');
+      break;
     }
-
-    if (!batchJobs) break;
 
     // ── 2b. Call Workflow 3 for ALL batches simultaneously ──
     // n8n handles all polling internally — Apify just waits for response
@@ -384,7 +322,10 @@ try {
     });
 
     if (completedBatches < total_batches) {
-      console.log(`\n⏳ ${total_batches - completedBatches} batch(es) remaining. Starting next round...`);
+      console.log(`\n⏳ ${total_batches - completedBatches} batch(es) remaining. Workflow 2 will handle next round...`);
+      // Workflow 1 triggers Workflow 2 for next round automatically via n8n
+      // batchJobs will come from Workflow 1 response on next iteration
+      batchJobs = wf1Data.batchJobs || [];
     }
   }
 
