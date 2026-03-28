@@ -224,18 +224,33 @@ try {
 
     if (!wf2Res.ok) throw new Error(`Step 2 error ${wf2Res.status}: ${wf2Text.slice(0, 200)}`);
 
-    // Handle empty or invalid response — stop silently
-    if (!wf2Text || wf2Text.trim() === '') break;
+    // Handle empty or invalid response
+    if (!wf2Text || wf2Text.trim() === '') {
+      if (completedBatches === 0) {
+        console.log('❌ No response, please try again.');
+      } else {
+        console.log('✅ No more pending batches.');
+      }
+      break;
+    }
 
     let wf2Data;
     try {
       wf2Data = JSON.parse(wf2Text);
     } catch (e) {
+      console.log('❌ No response, please try again.');
       break;
     }
 
     const batchJobs = wf2Data.batchJobs || [];
-    if (batchJobs.length === 0) break;
+    if (batchJobs.length === 0) {
+      if (completedBatches === 0) {
+        console.log('❌ No response, please try again.');
+      } else {
+        console.log('✅ No more pending batches.');
+      }
+      break;
+    }
 
     // ── 2b. Poll Boomerang stats for each batch ──
     console.log(`\nPolling Boomerang status every 2 minutes...`);
