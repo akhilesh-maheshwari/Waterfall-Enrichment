@@ -369,6 +369,8 @@ try {
       // ── Break if all done ──
       if (completedBatches >= total_batches) {
         console.log('\n✅ All batches processed!');
+        // Call Workflow 2 once more to trigger false branch → updates apify_master → Completed
+        await getNextBatchJobs();
         break;
       }
 
