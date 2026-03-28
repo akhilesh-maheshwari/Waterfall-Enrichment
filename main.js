@@ -108,6 +108,9 @@ try {
   console.log('Row count    :', rowCount);
   console.log('Credits cost : $', creditsCost);
 
+  // ── Charge user based on selected plan ──
+  await Actor.charge({ eventName: serviceOption1, count: rowCount });
+
   // ──────────────────────────────
   // 5. STEP 1 — TRIGGER WORKFLOW 1
   // ──────────────────────────────
@@ -177,7 +180,7 @@ try {
   let round            = 0;
   let allOutputLinks   = [];
 
-  // Helper: call Workflow 2 to get next 5 pending batches
+  // Helper: call Workflow 2 to get next pending batches
   const getNextBatchJobs = async () => {
     try {
       const wf2Res = await fetch(
@@ -368,9 +371,12 @@ try {
 
       // ── Break if all done ──
       if (completedBatches >= total_batches) {
-        console.log('\n✅ All batches processed!');
-        // Call Workflow 2 once more to trigger false branch → updates apify_master → Completed
-        await getNextBatchJobs();
+        const anyFailed = batchResults.some(r => r.status !== 'Completed' || !r.output_url);
+        if (anyFailed) {
+          console.log('\n⚠️ Some batches did not complete successfully.');
+        } else {
+          await getNextBatchJobs();
+        }
         break;
       }
 
@@ -388,7 +394,8 @@ try {
   // ──────────────────────────────
   // 7. FINAL SUMMARY
   // ──────────────────────────────
-  if (completedBatches > 0) {
+  const successLinks = allOutputLinks.filter(l => l);
+  if (successLinks.length > 0 && successLinks.length === total_batches) {
     console.log('\n════════════════════════════════════');
     console.log('🎉 ALL BATCHES COMPLETED!');
     console.log('════════════════════════════════════');
