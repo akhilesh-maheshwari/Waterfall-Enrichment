@@ -190,60 +190,77 @@ try {
     console.log(`         Remaining : ${remaining}`);
     console.log(`════════════════════════════════════`);
 
-    // ── 2a. Get 5 pending batches from Workflow 2 ──
-    let wf2Res;
-    try {
-      wf2Res = await fetch(
-        'https://n8n-internal.chitlangia.co/webhook/2d274972-e90d-4f14-bb58-57b7ea40abdf',
-        {
-          method : 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal : AbortSignal.timeout(60000),
-          body   : JSON.stringify({
-            request_unique_id,
-            batchFolderId,
-            userId,
-            runId,
-            time,
-            serviceTagName,
-            rowCount,
-            creditsCost,
-            boomerangInputUrl,
-            service_option_1 : serviceOption1,
-            service_name     : serviceName,
-            request_source   : requestSource
-          })
-        }
-      );
-    } catch (fetchErr) {
-      throw new Error(`Step 2 Round ${round} failed: ${fetchErr.message}`);
+    // ── 2a. Get 5 pending batches from NocoDB via Apify ──
+    // Workflow 1 already triggered Workflow 2 — Apify now polls NocoDB for Processing batches
+    console.log(`\n  Checking NocoDB for processing batches...`);
+
+    const POLL_INTERVAL_MS = 2 * 60 * 1000;
+    let batchJobs = [];
+    let pollAttempts = 0;
+
+    while (batchJobs.length === 0) {
+      pollAttempts++;
+      console.log(`  Poll attempt ${pollAttempts}...`);
+
+      let nocRes;
+      try {
+        nocRes = await fetch(
+          `https://n8n-internal.chitlangia.co/webhook/2d274972-e90d-4f14-bb58-57b7ea40abdf`,
+          {
+            method : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal : AbortSignal.timeout(60000),
+            body   : JSON.stringify({
+              request_unique_id,
+              batchFolderId,
+              userId,
+              runId,
+              time,
+              serviceTagName,
+              rowCount,
+              creditsCost,
+              boomerangInputUrl,
+              service_option_1 : serviceOption1,
+              service_name     : serviceName,
+              request_source   : requestSource
+            })
+          }
+        );
+      } catch (fetchErr) {
+        throw new Error(`Step 2 Round ${round} failed: ${fetchErr.message}`);
+      }
+
+      const nocText = await nocRes.text();
+      console.log('n8n step 2 status  :', nocRes.status);
+      console.log('n8n step 2 response:', nocText);
+
+      if (!nocRes.ok) throw new Error(`Step 2 error ${nocRes.status}: ${nocText.slice(0, 200)}`);
+
+      if (!nocText || nocText.trim() === '') {
+        console.log('✅ No more pending batches. All done!');
+        batchJobs = null;
+        break;
+      }
+
+      let nocData;
+      try {
+        nocData = JSON.parse(nocText);
+      } catch (e) {
+        console.log('Step 2 response not JSON, exiting loop.');
+        batchJobs = null;
+        break;
+      }
+
+      batchJobs = nocData.batchJobs || [];
+
+      if (batchJobs.length === 0) {
+        console.log('✅ No more pending batches. All done!');
+        batchJobs = null;
+        break;
+      }
     }
 
-    const wf2Text = await wf2Res.text();
-    console.log('n8n step 2 status  :', wf2Res.status);
-    console.log('n8n step 2 response:', wf2Text);
-
-    if (!wf2Res.ok) throw new Error(`Step 2 error ${wf2Res.status}: ${wf2Text.slice(0, 200)}`);
-
-    if (!wf2Text || wf2Text.trim() === '') {
-      console.log('✅ No more pending batches. All done!');
-      break;
-    }
-
-    let wf2Data;
-    try {
-      wf2Data = JSON.parse(wf2Text);
-    } catch (e) {
-      console.log('Step 2 response not JSON, exiting loop.');
-      break;
-    }
-
-    const batchJobs = wf2Data.batchJobs || [];
-
-    if (batchJobs.length === 0) {
-      console.log('✅ No more pending batches. All done!');
-      break;
-    }
+    if (!batchJobs) break;
 
     // ── 2b. Call Workflow 3 for ALL batches simultaneously ──
     // n8n handles all polling internally — Apify just waits for response
