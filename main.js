@@ -15,6 +15,7 @@ try {
   const serviceOption1 = input.serviceOption1        || 'pro';
   const requestSource  = input.requestSource         || 'Waterfall_enrichment_AP';
   const boomerangInputUrl = input.boomerangInputUrl  || 'https://s1.boomerangserver.co.in/webhook/waterfall-live';
+  const boomerangStatUrl  = input.boomerangStatUrl   || 'https://s1.boomerangserver.co.in/webhook/waterfall-request-stats';
 
   console.log('Tag Name :', serviceTagName);
   console.log('Service  :', serviceName);
@@ -68,7 +69,6 @@ try {
 
     const csvRes  = await fetch(csvUrl);
     csvContent    = await csvRes.text();
-
     const allRows = csvContent.trim().split('\n');
     rowCount      = allRows.length - 1;
     fileName      = serviceTagName.replace(/[^a-zA-Z0-9]/g, '_') + '_' + new Date().toISOString().replace(/[:.]/g, '-') + '.csv';
@@ -119,7 +119,7 @@ try {
   let wf1Res;
   try {
     wf1Res = await fetch(
-      'https://n8n-internal.chitlangia.co/webhook/master_webhook',
+      'https://n8n-internal.chitlangia.co/webhook/11fd4929-f376-40f8-9d6f-71f1b3587b3d',
       {
         method : 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -146,6 +146,9 @@ try {
   }
 
   const wf1Text = await wf1Res.text();
+  console.log('n8n step 1 status  :', wf1Res.status);
+  console.log('n8n step 1 response:', wf1Text);
+
   if (!wf1Res.ok) throw new Error(`Step 1 error ${wf1Res.status}: ${wf1Text.slice(0, 200)}`);
 
   let wf1Data;
@@ -163,36 +166,26 @@ try {
 
   if (!request_unique_id) throw new Error('No request_unique_id returned from Step 1!');
 
-  console.log('✅ Setup complete!');
+  console.log('\n✅ Step 1 Complete!');
   console.log('   Request ID    :', request_unique_id);
   console.log('   Master File   :', masterFileUrl);
   console.log('   Total Batches :', total_batches);
 
   // ──────────────────────────────
   // 6. STEP 2 — PROCESS BATCHES
-  //    5 batches at a time
+  //    Apify calls Workflow 2 directly
+  //    Then calls Workflow 3 for each batch
   // ──────────────────────────────
   let completedBatches = 0;
   let round            = 0;
   let allOutputLinks   = [];
+  let batchJobs        = [];
 
-  while (true) {
-
-    round++;
-    const remaining = total_batches - completedBatches;
-    const thisRound = Math.min(5, remaining);
-
-    console.log(`\n════════════════════════════════════`);
-    console.log(`Step 2 : Round ${round} — ${thisRound} batch(es)`);
-    console.log(`         Completed : ${completedBatches}/${total_batches}`);
-    console.log(`         Remaining : ${remaining}`);
-    console.log(`════════════════════════════════════`);
-
-    // ── 2a. Get pending batches & send to Boomerang ──
-    let wf2Res;
+  // Helper function to call Workflow 2
+  const getNextBatchJobs = async () => {
     try {
-      wf2Res = await fetch(
-        'https://n8n-internal.chitlangia.co/webhook/batch-process',
+      const wf2Res = await fetch(
+        'https://n8n-internal.chitlangia.co/webhook/2d274972-e90d-4f14-bb58-57b7ea40abdf',
         {
           method : 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -214,123 +207,105 @@ try {
           })
         }
       );
-    } catch (fetchErr) {
-      throw new Error(`Step 2 Round ${round} failed: ${fetchErr.message}`);
+      const wf2Text = await wf2Res.text();
+      console.log('n8n step 2 status  :', wf2Res.status);
+      console.log('n8n step 2 response:', wf2Text);
+      if (!wf2Text || wf2Text.trim() === '') return [];
+      const wf2Data = JSON.parse(wf2Text);
+      return wf2Data.batchJobs || [];
+    } catch (err) {
+      console.log('Workflow 2 call failed:', err.message);
+      return [];
     }
+  };
 
-    const wf2Text = await wf2Res.text();
-    console.log('n8n step 2 status:', wf2Res.status);
-    console.log('n8n step 2 raw response:', wf2Text);
+  // Get first round of batchJobs
+  batchJobs = await getNextBatchJobs();
 
-    if (!wf2Res.ok) throw new Error(`Step 2 error ${wf2Res.status}: ${wf2Text.slice(0, 200)}`);
+  while (true) {
 
-    // Handle empty or invalid response
-    if (!wf2Text || wf2Text.trim() === '') {
-      if (completedBatches === 0) {
-        console.log('❌ No response, please try again.');
-      } else {
-        console.log('✅ No more pending batches.');
-      }
+    round++;
+    const remaining = total_batches - completedBatches;
+    const thisRound = batchJobs.length;
+
+    console.log(`\n════════════════════════════════════`);
+    console.log(`Step 2 : Round ${round} — ${thisRound} batch(es)`);
+    console.log(`         Completed : ${completedBatches}/${total_batches}`);
+    console.log(`         Remaining : ${remaining}`);
+    console.log(`════════════════════════════════════`);
+
+    if (!batchJobs || batchJobs.length === 0) {
+      console.log('✅ No more pending batches. All done!');
       break;
     }
 
-    let wf2Data;
-    try {
-      wf2Data = JSON.parse(wf2Text);
-    } catch (e) {
-      console.log('❌ No response, please try again.');
-      break;
-    }
+    // ── 2b. Call Workflow 3 for ALL batches simultaneously ──
+    // n8n handles all polling internally — Apify just waits for response
+    console.log(`\n  Sending ${batchJobs.length} batches to n8n for status checking...`);
 
-    const batchJobs = wf2Data.batchJobs || [];
-    if (batchJobs.length === 0) {
-      if (completedBatches === 0) {
-        console.log('❌ No response, please try again.');
-      } else {
-        console.log('✅ No more pending batches.');
-      }
-      break;
-    }
+    const batchStatusResults = await Promise.all(
+      batchJobs.map(async (job) => {
+        const { request_id, driveInputLink, batch_number, nocodb_id } = job;
+        console.log(`  ⏳ Batch ${batch_number} — Waiting for n8n to complete (request_id: ${request_id})...`);
+        let statusData = null;
+          while (!statusData) {
+            try {
+              const statusRes = await fetch(
+                'https://n8n-internal.chitlangia.co/webhook/batch-status-copy',
+                {
+                  method : 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  signal : AbortSignal.timeout(60 * 60 * 1000), // 60 min timeout
+                  body   : JSON.stringify({
+                    request_id,
+                    batch_number,
+                    nocodb_id,
+                    driveInputLink,
+                    request_unique_id,
+                    batchFolderId,
+                    boomerangStatUrl,
+                    userId,
+                    runId,
+                    time,
+                    serviceTagName,
+                    rowCount         : job.batch_size || rowCount,
+                    creditsCost
+                  })
+                }
+              );
+              const statusText = await statusRes.text();
 
-    // ── 2b. Poll Boomerang stats for each batch ──
-    console.log(`\nPolling Boomerang status every 2 minutes...`);
+              // If 504 or HTML response → stop
+              if (statusText.includes('<html>') || statusText.includes('504')) {
+                console.log(`  ❌ Batch ${batch_number} — 504 Gateway Timeout, please try again.`);
+                statusData = { status: 'Failed' };
+                break;
+              }
 
-    const POLL_INTERVAL_MS = 2 * 60 * 1000;
+              console.log(`  ✅ Batch ${batch_number} n8n response:`, statusText);
+              statusData = JSON.parse(statusText);
+
+            } catch (err) {
+              console.log(`  ⚠️ Batch ${batch_number} failed: ${err.message}, retrying in 30 seconds...`);
+              await new Promise(r => setTimeout(r, 30000));
+            }
+          }
+          return { ...statusData, job };
+      })
+    );
+
+    // ── 2c. Call Workflow 4 (waterfall-output) for each completed batch ──
     const batchResults = [];
 
-    for (const job of batchJobs) {
-
+    for (const result of batchStatusResults) {
+      const { job } = result;
       const { request_id, driveInputLink, batch_number, nocodb_id } = job;
-
-      console.log(`\n  ⏳ Batch ${batch_number} — Polling (request_id: ${request_id})...`);
-
-      let requestStatus  = '';
-      let emailFound     = 0;
-      let emailNotFound  = 0;
-      let pollAttempts   = 0;
-
-      while (true) {
-
-        pollAttempts++;
-
-        let statsRes;
-        try {
-          statsRes = await fetch(
-            `https://s1.boomerangserver.co.in/webhook/waterfall-request-stats?request_id=${request_id}`,
-            { method: 'GET', signal: AbortSignal.timeout(15000) }
-          );
-        } catch (fetchErr) {
-          console.log(`  Batch ${batch_number} poll ${pollAttempts} failed: ${fetchErr.message}, retrying...`);
-          await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
-          continue;
-        }
-
-        const statsText = await statsRes.text();
-        let statsData;
-        try {
-          statsData = JSON.parse(statsText);
-        } catch (e) {
-          console.log(`  Batch ${batch_number} stats parse failed, retrying...`);
-          await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
-          continue;
-        }
-
-        requestStatus = statsData.request_status || statsData.requestStatus || statsData.status || '';
-        emailFound    = statsData.total_email_found    || 0;
-        emailNotFound = statsData.total_email_not_found || 0;
-
-        console.log(`  Batch ${batch_number} | Status: ${requestStatus || 'Pending'} | Found: ${emailFound} | Not Found: ${emailNotFound}`);
-
-        if (requestStatus === 'Completed') {
-          console.log(`  ✅ Batch ${batch_number} complete!`);
-          break;
-        }
-
-        await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
-      }
-
-      // ── 2c. Skip output if not completed ──
-      if (requestStatus !== 'Completed') {
-        console.log(`  ⚠️ Batch ${batch_number} did not complete. Skipping output.`);
-        batchResults.push({
-          batch_number,
-          request_id,
-          status          : requestStatus || 'Failed',
-          email_found     : emailFound,
-          email_not_found : emailNotFound,
-          output_url      : ''
-        });
-        allOutputLinks.push('');
-        continue;
-      }
-
-      // ── 2d. Call waterfall-output webhook ──
       const boomerangOutputUrl = `https://s1.boomerangserver.co.in/webhook/waterfalls-request-output?request_id=${request_id}`;
 
       let outputLink = '';
       try {
         const outputRes = await fetch(
-          'https://n8n-internal.chitlangia.co/webhook/waterfall-output',
+          'https://n8n-internal.chitlangia.co/webhook/waterfall-output-copy',
           {
             method : 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -340,10 +315,10 @@ try {
               runId,
               time,
               serviceTagName,
-              rowCount      : job.batch_size || rowCount,
+              rowCount         : job.batch_size || rowCount,
               creditsCost,
               request_id,
-              requestStatus,
+              requestStatus    : result.status,
               driveInputLink,
               boomerangOutputUrl,
               nocodb_id,
@@ -353,7 +328,6 @@ try {
             })
           }
         );
-
         const outputText = await outputRes.text();
         if (outputRes.ok) {
           try {
@@ -363,33 +337,29 @@ try {
             console.log(`  Batch ${batch_number} output parse failed, continuing...`);
           }
         } else {
-          console.log(`  Batch ${batch_number} output webhook returned ${outputRes.status}`);
+          console.log(`  ❌ No response, please try again.`);
         }
       } catch (fetchErr) {
-        console.log(`  Batch ${batch_number} output webhook failed: ${fetchErr.message}`);
+        console.log(`  ❌ No response, please try again.`);
       }
 
       batchResults.push({
         batch_number,
         request_id,
-        status          : requestStatus,
-        email_found     : emailFound,
-        email_not_found : emailNotFound,
-        output_url      : outputLink
+        status     : result.status,
+        output_url : outputLink
       });
 
       allOutputLinks.push(outputLink);
     }
 
-    // ── 2e. Log round results ──
+    // ── 2d. Log round results ──
     console.log(`\n✅ Round ${round} Results:`);
     for (const result of batchResults) {
       console.log(`\n   📦 Batch ${result.batch_number}`);
-      console.log(`      Request ID     : ${result.request_id}`);
-      console.log(`      Status         : ${result.status}`);
-      console.log(`      Emails Found   : ${result.email_found}`);
-      console.log(`      Emails Missing : ${result.email_not_found}`);
-      console.log(`      Output Link    : ${result.output_url}`);
+      console.log(`      Request ID  : ${result.request_id}`);
+      console.log(`      Status      : ${result.status}`);
+      console.log(`      Output Link : ${result.output_url}`);
     }
 
     completedBatches += batchResults.length;
@@ -403,7 +373,8 @@ try {
     });
 
     if (completedBatches < total_batches) {
-      console.log(`\n⏳ ${total_batches - completedBatches} batch(es) remaining. Starting next round...`);
+      console.log(`\n⏳ ${total_batches - completedBatches} batch(es) remaining. Getting next round...`);
+      batchJobs = await getNextBatchJobs();
     }
   }
 
@@ -424,7 +395,6 @@ try {
       status           : 'completed',
       request_unique_id,
       total_batches,
-      masterFileUrl,
       allOutputLinks
     });
   }
